@@ -110,6 +110,10 @@ pub fn compose_section(section: &Section) -> Vec<ComposedParagraph> {
 }
 
 /// 문단을 줄별 텍스트 런으로 분할한다.
+///
+/// 셀 안 paragraph 처럼 HWP 가 LineSeg 를 생략한 경우(`para.line_segs` 가 비어 있고
+/// 텍스트가 존재) 에는 호출자가 셀 폭을 알고 있으므로
+/// [`compose_paragraph_with_width`] 를 사용해 자체 line breaking 을 트리거 해야 한다.
 pub fn compose_paragraph(para: &Paragraph) -> ComposedParagraph {
     let mut lines = compose_lines(para);
     let inline_controls = identify_inline_controls(para);
@@ -175,6 +179,28 @@ pub fn compose_paragraph(para: &Paragraph) -> ComposedParagraph {
     convert_pua_enclosed_numbers(&mut composed);
 
     composed
+}
+
+/// 셀 폭을 인지하는 compose_paragraph 변종.
+///
+/// `para.line_segs` 가 비어 있고 텍스트가 존재할 때만 `available_width_px` 를
+/// 사용해 자체 line breaking 을 수행한다 (셀 안 paragraph 가 wrap 되도록).
+/// 호출자는 paragraph 를 mutate 시키지 않고 결과만 받는다 — 내부에서 clone.
+///
+/// LineSeg 가 이미 채워진 일반 본문 paragraph 에는 영향이 없으므로, layout 과
+/// height 측정 양 경로에서 안전하게 사용 가능.
+pub fn compose_paragraph_with_width(
+    para: &Paragraph,
+    available_width_px: f64,
+    styles: &crate::renderer::style_resolver::ResolvedStyleSet,
+    dpi: f64,
+) -> ComposedParagraph {
+    if !para.line_segs.is_empty() || para.text.is_empty() || available_width_px <= 0.0 {
+        return compose_paragraph(para);
+    }
+    let mut p = para.clone();
+    super::composer::reflow_line_segs(&mut p, available_width_px, styles, dpi);
+    compose_paragraph(&p)
 }
 
 /// 각주 마커를 해당 텍스트 위치의 런에 인라인 삽입

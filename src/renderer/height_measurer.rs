@@ -8,7 +8,7 @@ use crate::model::footnote::{Footnote, FootnoteShape};
 use crate::model::paragraph::Paragraph;
 use crate::model::shape::Caption;
 use crate::model::table::{Table, TablePageBreak};
-use super::composer::{ComposedParagraph, compose_paragraph};
+use super::composer::{compose_paragraph, compose_paragraph_with_width, ComposedParagraph};
 use super::style_resolver::ResolvedStyleSet;
 use super::{hwpunit_to_px, DEFAULT_DPI};
 
@@ -488,6 +488,21 @@ impl HeightMeasurer {
                      if cell.padding.bottom != 0 { hwpunit_to_px(cell.padding.bottom as i32, self.dpi) }
                      else { hwpunit_to_px(table.padding.bottom as i32, self.dpi) })
                 };
+                // FIX (mindori/rhwp): 셀 가로 inner width 도 계산해서 compose 시 wrap
+                // 위치를 결정. layout 단계와 동일한 helper 를 사용해 측정-렌더 일치.
+                let (pad_left, pad_right) = if !cell.apply_inner_margin {
+                    (hwpunit_to_px(table.padding.left as i32, self.dpi),
+                     hwpunit_to_px(table.padding.right as i32, self.dpi))
+                } else {
+                    (if cell.padding.left != 0 { hwpunit_to_px(cell.padding.left as i32, self.dpi) }
+                     else { hwpunit_to_px(table.padding.left as i32, self.dpi) },
+                     if cell.padding.right != 0 { hwpunit_to_px(cell.padding.right as i32, self.dpi) }
+                     else { hwpunit_to_px(table.padding.right as i32, self.dpi) })
+                };
+                let cell_inner_width = (hwpunit_to_px(cell.width as i32, self.dpi)
+                    - pad_left
+                    - pad_right)
+                    .max(0.0);
 
                 // 셀 내 문단들의 실제 높이 합산
                 let text_height: f64 = if cell.text_direction != 0 {
@@ -507,7 +522,7 @@ impl HeightMeasurer {
                     cell.paragraphs.iter()
                         .enumerate()
                         .map(|(pidx, p)| {
-                            let comp = compose_paragraph(p);
+                            let comp = compose_paragraph_with_width(p, cell_inner_width, styles, self.dpi);
                             let para_style = styles.para_styles.get(p.para_shape_id as usize);
                             let is_last_para = pidx + 1 == cell_para_count;
                             let spacing_before = if pidx > 0 {
@@ -637,6 +652,20 @@ impl HeightMeasurer {
                      if cell.padding.bottom != 0 { hwpunit_to_px(cell.padding.bottom as i32, self.dpi) }
                      else { hwpunit_to_px(table.padding.bottom as i32, self.dpi) })
                 };
+                // FIX (mindori/rhwp): inner width 도 계산해서 wrap-aware 측정.
+                let (pad_left, pad_right) = if !cell.apply_inner_margin {
+                    (hwpunit_to_px(table.padding.left as i32, self.dpi),
+                     hwpunit_to_px(table.padding.right as i32, self.dpi))
+                } else {
+                    (if cell.padding.left != 0 { hwpunit_to_px(cell.padding.left as i32, self.dpi) }
+                     else { hwpunit_to_px(table.padding.left as i32, self.dpi) },
+                     if cell.padding.right != 0 { hwpunit_to_px(cell.padding.right as i32, self.dpi) }
+                     else { hwpunit_to_px(table.padding.right as i32, self.dpi) })
+                };
+                let cell_inner_width = (hwpunit_to_px(cell.width as i32, self.dpi)
+                    - pad_left
+                    - pad_right)
+                    .max(0.0);
                 let text_height: f64 = if cell.text_direction != 0 {
                     // 세로쓰기: max(segment_width)
                     let mut max_h: f64 = 0.0;
@@ -652,7 +681,7 @@ impl HeightMeasurer {
                     cell.paragraphs.iter()
                         .enumerate()
                         .map(|(pidx, p)| {
-                            let comp = compose_paragraph(p);
+                            let comp = compose_paragraph_with_width(p, cell_inner_width, styles, self.dpi);
                             let para_style = styles.para_styles.get(p.para_shape_id as usize);
                             let is_last_para = pidx + 1 == cell_para_count;
                             let spacing_before = if pidx > 0 {
@@ -778,13 +807,28 @@ impl HeightMeasurer {
                     } else {
                         hwpunit_to_px(table.padding.bottom as i32, self.dpi)
                     };
+                    // FIX (mindori/rhwp): inner width 도 — 줄 수 카운팅에 wrap 반영.
+                    let pad_left_cell = if cell.padding.left != 0 {
+                        hwpunit_to_px(cell.padding.left as i32, self.dpi)
+                    } else {
+                        hwpunit_to_px(table.padding.left as i32, self.dpi)
+                    };
+                    let pad_right_cell = if cell.padding.right != 0 {
+                        hwpunit_to_px(cell.padding.right as i32, self.dpi)
+                    } else {
+                        hwpunit_to_px(table.padding.right as i32, self.dpi)
+                    };
+                    let cell_inner_width_local = (hwpunit_to_px(cell.width as i32, self.dpi)
+                        - pad_left_cell
+                        - pad_right_cell)
+                        .max(0.0);
 
                     let mut line_heights = Vec::new();
                     let mut para_line_counts = Vec::new();
                     let para_count = cell.paragraphs.len();
 
                     for (pi, p) in cell.paragraphs.iter().enumerate() {
-                        let comp = compose_paragraph(p);
+                        let comp = compose_paragraph_with_width(p, cell_inner_width_local, styles, self.dpi);
                         let para_style = styles.para_styles.get(p.para_shape_id as usize);
                         let is_last_para = pi + 1 == para_count;
                         // compute_cell_line_ranges와 동일 규칙:
