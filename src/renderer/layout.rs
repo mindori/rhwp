@@ -2381,7 +2381,16 @@ impl LayoutEngine {
                             let alignment = styles.para_styles.get(para_style_id)
                                 .map(|s| s.alignment)
                                 .unwrap_or(Alignment::Left);
-                            let pic_y = para_start_y.get(&para_index).copied().unwrap_or(y_offset);
+                            let para_top = para_start_y.get(&para_index).copied().unwrap_or(y_offset);
+                            // FIX (mindori/rhwp): VertRelTo::Para 의 ref_y 가 paragraph 의
+                            // line top 이 아니라 line bottom (= paragraph_top + first_line_h).
+                            // 우리 layout 의 para_start_y 는 paragraph 시작 line top 이므로,
+                            // picture anchor 로 쓸 때는 첫 line height 만큼 아래로 보정.
+                            // line_segs=0 인 빈 paragraph 는 line_h=0 이라 보정 없음 (회귀 무).
+                            let line_h = para.line_segs.first()
+                                .map(|s| hwpunit_to_px(s.line_height, self.dpi))
+                                .unwrap_or(0.0);
+                            let pic_y = para_top + line_h;
                             let pic_container = LayoutRect {
                                 x: col_area.x, y: pic_y,
                                 width: col_area.width,
