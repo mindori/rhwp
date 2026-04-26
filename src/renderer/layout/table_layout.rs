@@ -1774,6 +1774,33 @@ impl LayoutEngine {
                 );
             }
 
+            // FIX (mindori/rhwp): 셀 children 의 실제 max bottom 으로 cell.bbox.h 확장.
+            // HWP 가 LineSeg/cell.height 를 작게 저장해두는 문서에서 wrap 후 콘텐츠가
+            // cell.bbox.h 를 초과하면 SvgRenderer 의 cell clip 이 잘라낸다. 이를 방지.
+            // row_filter 가 있는 분할 셀(페이지 경계) 에서는 그대로 두어 기존 동작 유지.
+            if row_filter.is_none() {
+                let mut max_child_bottom = cell_node.bbox.y + cell_node.bbox.height;
+                fn walk_max_bottom(node: &RenderNode, current: &mut f64) {
+                    if !node.visible {
+                        return;
+                    }
+                    let bottom = node.bbox.y + node.bbox.height;
+                    if bottom > *current {
+                        *current = bottom;
+                    }
+                    for child in &node.children {
+                        walk_max_bottom(child, current);
+                    }
+                }
+                for child in &cell_node.children {
+                    walk_max_bottom(child, &mut max_child_bottom);
+                }
+                let needed = max_child_bottom - cell_node.bbox.y + pad_bottom;
+                if needed > cell_node.bbox.height {
+                    cell_node.bbox.height = needed;
+                }
+            }
+
             table_node.children.push(cell_node);
 
             // (c) 셀 대각선 렌더링 (셀 콘텐츠 위에 그림)
