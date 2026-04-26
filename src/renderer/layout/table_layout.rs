@@ -8,7 +8,7 @@ use crate::model::bin_data::BinDataContent;
 use super::super::render_tree::*;
 use super::super::page_layout::LayoutRect;
 use super::super::height_measurer::MeasuredTable;
-use super::super::composer::{compose_paragraph, ComposedParagraph};
+use super::super::composer::{compose_paragraph, ComposedParagraph, reflow_line_segs};
 use super::super::style_resolver::ResolvedStyleSet;
 use super::super::{hwpunit_to_px, ShapeStyle};
 use super::{LayoutEngine, CellContext, CellPathEntry};
@@ -1014,8 +1014,22 @@ impl LayoutEngine {
             let inner_width = (cell_w - pad_left - pad_right).max(0.0);
             let inner_height = (cell_h - pad_top - pad_bottom).max(0.0);
 
-            let mut composed_paras: Vec<_> = cell.paragraphs.iter()
-                .map(|p| compose_paragraph(p))
+            // FIX (mindori/rhwp): 셀 내 paragraph 가 line_segs 를 비워둔 채 저장된 HWP
+            // 파일(한컴이 LineSeg 를 직렬화하지 않는 모드)에서 wrap 위치를 알 수 없어
+            // compose_lines 가 전체 텍스트를 한 줄로 처리하던 버그를 수정.
+            // 셀 폭(`inner_width`) 을 reflow_line_segs 에 넘겨 자체 line breaking 수행 후
+            // compose_paragraph 호출. 원본 HWP 의 paragraph 는 mutate 하지 않도록
+            // clone 후 작업.
+            let mut composed_paras: Vec<ComposedParagraph> = cell
+                .paragraphs
+                .iter()
+                .cloned()
+                .map(|mut p| {
+                    if p.line_segs.is_empty() && !p.text.is_empty() && inner_width > 0.0 {
+                        reflow_line_segs(&mut p, inner_width, styles, self.dpi);
+                    }
+                    compose_paragraph(&p)
+                })
                 .collect();
 
             // AutoNumber(Page) 치환: 셀 내 쪽번호 필드를 현재 페이지 번호로 변환
