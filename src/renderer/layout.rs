@@ -497,6 +497,15 @@ impl LayoutEngine {
                 self.substitute_hf_field_markers(&mut comp, page_number);
                 if comp.tac_controls.is_empty() {
                     // 머리말/꼬리말 내 Picture: header/footer area 기준 배치
+                    // FIX (mindori/rhwp): 기존 코드는 picture 만 그리고 text 를 누락 +
+                    // floating wrap (BehindText/InFrontOfText) 까지 y_offset 을 advance.
+                    // 결과적으로 footer 의 "사단법인 ... / 10인의 속기·녹취사무소" 텍스트가
+                    // 통째로 누락되었음 (도장은 보이지만 텍스트 없음).
+                    // → 1) floating picture 는 layout_picture 로 그리되 y_offset 미진행
+                    //    2) Square/TopAndBottom 만 height 만큼 advance
+                    //    3) paragraph 의 text 는 항상 layout_paragraph 로 그림
+                    use crate::model::shape::TextWrap;
+                    let mut floating_only = true;
                     for (_ci, ctrl) in para.controls.iter().enumerate() {
                         if let Control::Picture(pic) = ctrl {
                             let pic_container = LayoutRect {
@@ -509,9 +518,31 @@ impl LayoutEngine {
                                 tree, area_node, pic, &pic_container,
                                 bin_data_content, Alignment::Left, None, None, None,
                             );
-                            let pic_h = hwpunit_to_px(pic.common.height as i32, self.dpi);
-                            y_offset += pic_h;
+                            // 본문 흐름에 영향을 주는 wrap 만 height 누적
+                            if matches!(pic.common.text_wrap,
+                                TextWrap::Square | TextWrap::TopAndBottom)
+                            {
+                                let pic_h = hwpunit_to_px(pic.common.height as i32, self.dpi);
+                                y_offset += pic_h;
+                                floating_only = false;
+                            }
                         }
+                    }
+                    // text 가 있으면 함께 layout (paragraph 자체의 line 도 그려야 함)
+                    let has_text = !para.text.is_empty()
+                        || comp.lines.iter().any(|l| !l.runs.is_empty());
+                    if has_text {
+                        y_offset = self.layout_paragraph(
+                            tree, area_node, para, Some(&comp), styles, area, y_offset,
+                            0, usize::MAX - i, None, None,
+                        );
+                    } else if floating_only {
+                        // text 없고 picture 도 floating 만 → paragraph 자체가 차지하는
+                        // 최소 line height 만큼은 advance 시켜 다음 paragraph 와 겹치지 않게
+                        let line_h = para.line_segs.first()
+                            .map(|s| hwpunit_to_px(s.line_height, self.dpi))
+                            .unwrap_or_else(|| hwpunit_to_px(400, self.dpi));
+                        y_offset += line_h;
                     }
                 } else {
                     // TAC Picture: layout_paragraph에서 인라인 배치
