@@ -360,12 +360,16 @@ impl LayoutEngine {
             );
         }
 
-        // y_offset 업데이트: Para 기준 그림만 높이만큼 진행
-        // Page/Paper 기준 그림은 플로팅이므로 y_offset 변경 없음
+        // y_offset 업데이트: Para 기준 그림 중 본문 공간을 차지하는 wrap 만 높이 진행
+        // - Square / TopAndBottom: 본문 흐름에 영향 → y_offset += pic_h
+        // - BehindText / InFrontOfText: 부동(floating) → y_offset 변경 없음 (도장 등)
+        // - Page/Paper 기준: 부동 → y_offset 변경 없음
         let total_height = pic_height + caption_height + if caption_height > 0.0 { caption_spacing } else { 0.0 };
-        match picture.common.vert_rel_to {
-            VertRelTo::Para => y_offset + total_height,
-            VertRelTo::Page | VertRelTo::Paper => y_offset,
+        use crate::model::shape::TextWrap;
+        match (picture.common.vert_rel_to, picture.common.text_wrap) {
+            (VertRelTo::Para, TextWrap::BehindText | TextWrap::InFrontOfText) => y_offset,
+            (VertRelTo::Para, _) => y_offset + total_height,
+            (VertRelTo::Page | VertRelTo::Paper, _) => y_offset,
         }
     }
 
