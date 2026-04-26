@@ -49,7 +49,20 @@ impl LayoutEngine {
 
         // 그림 위치: non-TAC 이미지는 common 속성의 offset 적용
         // 머리말/꼬리말에서 vert=Paper는 상단여백(header area) 기준
-        let (pic_x, pic_y) = if !picture.common.treat_as_char {
+        //
+        // FIX (mindori/rhwp): 일부 호출자 (table_layout 의 셀 안 floating Picture 처리)
+        // 가 compute_object_position() 으로 이미 pic_x/pic_y 를 계산한 뒤
+        // container = LayoutRect { x: pic_x, y: pic_y, width: pic_w, height: pic_h }
+        // 형태로 본 함수를 호출한다. 이 분기에서 horizontal/vertical_offset 을 다시
+        // 적용하면 좌표가 두 배로 더해져 페이지 영역 밖으로 밀려난다 (도장 등 floating
+        // 이미지가 사라지던 원인). container.width/height 가 pic_width/pic_height 와
+        // 일치하면 이미 좌표가 결정된 케이스로 보고 재계산을 스킵.
+        let position_already_computed = !picture.common.treat_as_char
+            && (container.width - pic_width).abs() < 0.5
+            && (container.height - pic_height).abs() < 0.5;
+        let (pic_x, pic_y) = if position_already_computed {
+            (container.x, container.y)
+        } else if !picture.common.treat_as_char {
             let h_offset = hwpunit_to_px(picture.common.horizontal_offset as i32, self.dpi);
             let v_offset = hwpunit_to_px(picture.common.vertical_offset as i32, self.dpi);
             let x = match picture.common.horz_align {
